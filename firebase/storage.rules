@@ -1,0 +1,56 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // Deny-by-default
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedAuth() {
+      return isSignedIn() && (
+        request.auth.token.email_verified == true ||
+        request.auth.token.phone_number != null
+      );
+    }
+
+    function isSuperAdmin() {
+      return isSignedIn() &&
+        request.auth.token.email_verified == true &&
+        (
+          request.auth.token.email == 'sandeeprana4519@gmail.com' ||
+          request.auth.token.role == 'super_admin' ||
+          request.auth.token.role == 'admin'
+        );
+    }
+
+    // Society-scoped assets (campaign banners)
+    match /societies/{societyId}/campaigns/{fileName} {
+      allow read: if isVerifiedAuth();
+      allow write: if isSuperAdmin() &&
+        request.resource.size < 5 * 1024 * 1024 &&
+        request.resource.contentType.matches('image/.*');
+    }
+
+    // Resident verification documents (if uploaded): owner or admin only
+    match /societies/{societyId}/verification/{uid}/{fileName} {
+      allow read: if isSuperAdmin() || (isVerifiedAuth() && request.auth.uid == uid);
+      allow write: if isVerifiedAuth() &&
+        request.auth.uid == uid &&
+        request.resource.size < 5 * 1024 * 1024 &&
+        request.resource.contentType.matches('image/.*|application/pdf');
+    }
+
+    // Catalog images (Products & Services)
+    match /catalog/{category}/{fileName} {
+      allow read: if isVerifiedAuth();
+      allow write: if isSuperAdmin() &&
+        request.resource.size < 5 * 1024 * 1024 &&
+        request.resource.contentType.matches('image/.*');
+    }
+  }
+}

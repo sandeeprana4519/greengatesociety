@@ -1,0 +1,29 @@
+{
+  "expo": {
+    "name": "GreenGate Society",
+    "slug": "greengate-society-marketplace",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "greengate",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.greengate.societymarketplace",
+      "googleServicesFile": "./GoogleService-Info.plist"
+    },
+    "android": {
+      "package": "com.greengate.societymarketplace",
+      "googleServicesFile": "./google-services.json",
+      "adaptiveIcon": {
+        "backgroundColor": "#0F3D2E"
+      }
+    },
+    "plugins": [
+      "expo-router",
+      "@react-native-firebase/app",
+      "@react-native-firebase/auth",
+      "@react-native-firebase/messaging"
+    ]
+  }
+}

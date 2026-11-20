@@ -1,0 +1,32 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "experimentalDecorators": true,
+    "useDefineForClassFields": false,
+    "module": "ESNext",
+    "types": ["vite/client"],
+    "lib": [
+      "ES2022",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "skipLibCheck": true,
+    "moduleResolution": "bundler",
+    "isolatedModules": true,
+    "moduleDetection": "force",
+    "allowJs": true,
+    "jsx": "react-jsx",
+    "paths": {
+      "@/*": ["./*"],
+      "@society-marketplace/shared-types": ["./packages/shared-types/src/index.ts"],
+      "@society-marketplace/constants": ["./packages/constants/src/index.ts"],
+      "@society-marketplace/validation": ["./packages/validation/src/index.ts"],
+      "@society-marketplace/business-logic": ["./packages/business-logic/src/index.ts"]
+    },
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "strict": true
+  },
+  "include": ["src", "packages"],
+  "exclude": ["dist", "apps", "functions", "scripts", "firestore.rules.test.ts"]
+}

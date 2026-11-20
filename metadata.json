@@ -1,0 +1,6 @@
+{
+  "name": "GreenGate Society Marketplace",
+  "description": "Society-based group buying, bulk vendor offers, and hyperlocal services marketplace with multi-tenant Firebase security.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,585 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "Authenticated customer or staff profile linked to a residential society.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "fullName": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "phoneNumber": { "type": "string", "minLength": 0, "maxLength": 20 },
+        "email": { "type": "string", "minLength": 0, "maxLength": 160 },
+        "alternateContact": { "type": "string", "minLength": 0, "maxLength": 20 },
+        "societyId": { "type": "string", "minLength": 0, "maxLength": 128 },
+        "flatId": { "type": "string", "minLength": 0, "maxLength": 64 },
+        "flatNumber": { "type": "string", "minLength": 0, "maxLength": 32 },
+        "tower": { "type": "string", "minLength": 0, "maxLength": 64 },
+        "residentType": { "type": "string", "enum": ["Owner", "Tenant"] },
+        "addressConfirmed": { "type": "boolean" },
+        "accountType": { "type": "string", "enum": ["customer", "admin", "staff", "vendor"] },
+        "membershipStatus": {
+          "type": "string",
+          "enum": ["not_submitted", "unverified", "pending", "approved", "rejected", "suspended"]
+        },
+        "accountStatus": {
+          "type": "string",
+          "enum": ["active", "suspended", "blocked"]
+        },
+        "rejectionReason": { "type": "string", "minLength": 0, "maxLength": 240 },
+        "suspensionReason": { "type": "string", "minLength": 0, "maxLength": 240 },
+        "infoRequestNote": { "type": "string", "minLength": 0, "maxLength": 300 },
+        "verifiedAt": { "type": "string", "format": "date-time" },
+        "verifiedBy": { "type": "string", "minLength": 0, "maxLength": 128 },
+        "approvalAcknowledged": { "type": "boolean" },
+        "fcmToken": { "type": "string", "minLength": 0, "maxLength": 512 },
+        "preferredLocale": { "type": "string", "enum": ["en", "hi"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "name", "membershipStatus", "accountStatus", "createdAt", "updatedAt"]
+    },
+    "Society": {
+      "title": "Society",
+      "description": "Residential society tenant root entity.",
+      "type": "object",
+      "properties": {
+        "societyId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "societyName": { "type": "string", "minLength": 2, "maxLength": 140 },
+        "address": { "type": "string", "minLength": 2, "maxLength": 300 },
+        "city": { "type": "string", "minLength": 2, "maxLength": 80 },
+        "state": { "type": "string", "minLength": 2, "maxLength": 80 },
+        "pincode": { "type": "string", "pattern": "^[0-9]{6}$", "minLength": 6, "maxLength": 6 },
+        "invitationCode": { "type": "string", "minLength": 4, "maxLength": 32, "pattern": "^[A-Z0-9_\\-]+$" },
+        "towers": { "type": "array" },
+        "totalFlats": { "type": "integer" },
+        "status": { "type": "string", "enum": ["active", "inactive"] },
+        "isDemo": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["societyId", "societyName", "address", "city", "state", "pincode", "invitationCode", "status", "createdAt"]
+    },
+    "Invitation": {
+      "title": "Invitation",
+      "description": "Legacy Phase 1 invitation metadata (admin/server read-only in Phase 2).",
+      "type": "object",
+      "properties": {
+        "code": { "type": "string", "minLength": 4, "maxLength": 32, "pattern": "^[A-Z0-9_\\-]+$" },
+        "societyId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "societyName": { "type": "string", "minLength": 2, "maxLength": 140 },
+        "city": { "type": "string", "minLength": 2, "maxLength": 80 },
+        "active": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["code", "societyId", "societyName", "city", "active", "createdAt"]
+    },
+    "InvitationCode": {
+      "title": "InvitationCode",
+      "description": "Admin/server-only hashed society invitation code record with expiry and usage caps.",
+      "type": "object",
+      "properties": {
+        "codeId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "societyId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "societyName": { "type": "string", "minLength": 2, "maxLength": 140 },
+        "city": { "type": "string", "minLength": 2, "maxLength": 80 },
+        "codeHash": { "type": "string", "minLength": 64, "maxLength": 64, "pattern": "^[a-f0-9]{64}$" },
+        "codePreview": { "type": "string", "minLength": 2, "maxLength": 16 },
+        "status": { "type": "string", "enum": ["active", "inactive", "revoked", "expired"] },
+        "expiresAt": { "type": "string", "minLength": 0, "maxLength": 64 },
+        "maxUses": { "type": "integer" },
+        "usedCount": { "type": "integer" },
+        "createdBy": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["codeId", "societyId", "societyName", "city", "codeHash", "status", "maxUses", "usedCount", "createdBy", "createdAt", "updatedAt"]
+    },
+    "InvitationLookup": {
+      "title": "InvitationLookup",
+      "description": "SHA-256 hash keyed lookup projection (get-only, never listable, contains no plaintext code or PII).",
+      "type": "object",
+      "properties": {
+        "codeId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "societyId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "societyName": { "type": "string", "minLength": 2, "maxLength": 140 },
+        "city": { "type": "string", "minLength": 2, "maxLength": 80 },
+        "status": { "type": "string", "enum": ["active", "inactive", "revoked", "expired"] },
+        "expiresAt": { "type": "string", "minLength": 0, "maxLength": 64 },
+        "maxUses": { "type": "integer" },
+        "usedCount": { "type": "integer" }
+      },
+      "required": ["codeId", "societyId", "societyName", "city", "status", "maxUses", "usedCount"]
+    },
+    "Membership": {
+      "title": "Membership",
+      "description": "Society resident membership record requiring admin approval.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "societyId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "flatId": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "flatNumber": { "type": "string", "minLength": 0, "maxLength": 32 },
+        "tower": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "residentName": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "residentType": { "type": "string", "enum": ["Owner", "Tenant"] },
+        "phoneNumber": { "type": "string", "minLength": 0, "maxLength": 20 },
+        "email": { "type": "string", "minLength": 0, "maxLength": 160 },
+        "alternateContact": { "type": "string", "minLength": 0, "maxLength": 20 },
+        "addressConfirmed": { "type": "boolean" },
+        "invitationCode": { "type": "string", "minLength": 0, "maxLength": 64 },
+        "invitationCodeId": { "type": "string", "minLength": 0, "maxLength": 128 },
+        "verificationStatus": { "type": "string", "enum": ["pending", "approved", "rejected", "suspended"] },
+        "rejectionReason": { "type": "string", "minLength": 0, "maxLength": 240 },
+        "suspensionReason": { "type": "string", "minLength": 0, "maxLength": 240 },
+        "infoRequestNote": { "type": "string", "minLength": 0, "maxLength": 300 },
+        "verifiedBy": { "type": "string", "minLength": 0, "maxLength": 128 },
+        "verifiedAt": { "type": "string", "format": "date-time" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "societyId", "flatId", "tower", "residentName", "verificationStatus", "createdAt", "updatedAt"]
+    },
+    "Flat": {
+      "title": "Flat",
+      "description": "Flat inventory within a society with single-primary-resident occupancy lock.",
+      "type": "object",
+      "properties": {
+        "flatId": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "societyId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "tower": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "flatNumber": { "type": "string", "minLength": 1, "maxLength": 32 },
+        "occupied": { "type": "boolean" },
+        "status": { "type": "string", "enum": ["Available", "Occupied", "Verification Pending", "Active", "Suspended"] },
+        "primaryResidentUid": { "type": "string", "minLength": 0, "maxLength": 128 },
+        "residentType": { "type": "string", "enum": ["Owner", "Tenant"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["flatId", "societyId", "tower", "flatNumber", "occupied", "status", "createdAt"]
+    },
+    "VerificationHistory": {
+      "title": "VerificationHistory",
+      "description": "Append-only verification lifecycle event log per society.",
+      "type": "object",
+      "properties": {
+        "historyId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "societyId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "flatId": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "tower": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "action": {
+          "type": "string",
+          "enum": ["submitted", "resubmitted", "approved", "rejected", "info_requested", "suspended", "reactivated", "society_change_requested"]
+        },
+        "previousStatus": { "type": "string", "minLength": 0, "maxLength": 32 },
+        "newStatus": { "type": "string", "minLength": 1, "maxLength": 32 },
+        "actorUid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "actorEmail": { "type": "string", "minLength": 0, "maxLength": 160 },
+        "note": { "type": "string", "minLength": 0, "maxLength": 300 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["historyId", "uid", "societyId", "flatId", "tower", "action", "newStatus", "actorUid", "createdAt"]
+    },
+    "Campaign": {
+      "title": "Campaign",
+      "description": "Bulk vendor offer campaign scoped strictly to one residential society.",
+      "type": "object",
+      "properties": {
+        "campaignId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "societyId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "title": { "type": "string", "minLength": 2, "maxLength": 140 },
+        "description": { "type": "string", "minLength": 2, "maxLength": 1000 },
+        "category": { "type": "string", "minLength": 2, "maxLength": 64 },
+        "imageUrl": { "type": "string", "minLength": 0, "maxLength": 500 },
+        "regularPricePaise": { "type": "integer" },
+        "offerPricePaise": { "type": "integer" },
+        "minimumTarget": { "type": "integer" },
+        "maximumCapacity": { "type": "integer" },
+        "currentParticipants": { "type": "integer" },
+        "bookingDeadline": { "type": "string", "format": "date-time" },
+        "scheduledDate": { "type": "string", "format": "date-time" },
+        "status": { "type": "string", "enum": ["draft", "active", "target_met", "closed", "cancelled"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["campaignId", "societyId", "title", "description", "regularPricePaise", "offerPricePaise", "minimumTarget", "maximumCapacity", "currentParticipants", "bookingDeadline", "scheduledDate", "status", "createdAt"]
+    },
+    "GroupCampaign": {
+      "title": "GroupCampaign",
+      "description": "Group buying product campaign scoped to a residential society.",
+      "type": "object",
+      "properties": {
+        "campaignId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "societyId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "title": { "type": "string", "minLength": 2, "maxLength": 140 },
+        "description": { "type": "string", "minLength": 2, "maxLength": 1000 },
+        "unitLabel": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "imageUrl": { "type": "string", "minLength": 0, "maxLength": 500 },
+        "marketPricePaise": { "type": "integer" },
+        "groupPricePaise": { "type": "integer" },
+        "minimumGroupQuantity": { "type": "integer" },
+        "maximumGroupQuantity": { "type": "integer" },
+        "currentQuantity": { "type": "integer" },
+        "deadline": { "type": "string", "format": "date-time" },
+        "expectedDeliveryDate": { "type": "string", "format": "date-time" },
+        "status": { "type": "string", "enum": ["draft", "active", "target_met", "closed", "cancelled"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["campaignId", "societyId", "title", "description", "marketPricePaise", "groupPricePaise", "minimumGroupQuantity", "currentQuantity", "deadline", "expectedDeliveryDate", "status", "createdAt"]
+    },
+    "Participation": {
+      "title": "Participation",
+      "description": "Resident participation record for bulk or group campaigns.",
+      "type": "object",
+      "properties": {
+        "participationId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "societyId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "campaignId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "campaignType": { "type": "string", "enum": ["bulk_offer", "group_buy"] },
+        "campaignTitle": { "type": "string", "minLength": 1, "maxLength": 140 },
+        "quantity": { "type": "integer" },
+        "unitPricePaise": { "type": "integer" },
+        "flatId": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "tower": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "status": { "type": "string", "enum": ["joined", "confirmed", "cancelled"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["participationId", "uid", "societyId", "campaignId", "campaignType", "campaignTitle", "quantity", "unitPricePaise", "flatId", "tower", "status", "createdAt"]
+    },
+    "Order": {
+      "title": "Order",
+      "description": "Individual Buy Now order belonging to a verified resident inside a society.",
+      "type": "object",
+      "properties": {
+        "orderId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "societyId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "flatId": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "tower": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "items": { "type": "array" },
+        "totalAmountPaise": { "type": "integer" },
+        "paymentStatus": { "type": "string", "enum": ["payment_integration_pending", "pending", "paid", "failed", "refunded"] },
+        "orderStatus": { "type": "string", "enum": ["placed", "confirmed", "packed", "out_for_delivery", "delivered", "cancelled"] },
+        "idempotencyKey": { "type": "string", "minLength": 4, "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["orderId", "uid", "societyId", "flatId", "tower", "items", "totalAmountPaise", "paymentStatus", "orderStatus", "createdAt", "updatedAt"]
+    },
+    "ServiceBooking": {
+      "title": "ServiceBooking",
+      "description": "Hyperlocal home service booking scoped to a verified society and flat.",
+      "type": "object",
+      "properties": {
+        "bookingId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "societyId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "serviceId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "serviceTitle": { "type": "string", "minLength": 2, "maxLength": 140 },
+        "category": { "type": "string", "minLength": 2, "maxLength": 64 },
+        "flatId": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "tower": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "serviceAddress": { "type": "string", "minLength": 4, "maxLength": 300 },
+        "preferredDate": { "type": "string", "minLength": 4, "maxLength": 32 },
+        "timeSlot": { "type": "string", "minLength": 2, "maxLength": 64 },
+        "problemDescription": { "type": "string", "minLength": 5, "maxLength": 1000 },
+        "quotedPricePaise": { "type": "integer" },
+        "status": { "type": "string", "enum": ["requested", "assigned", "in_progress", "completed", "cancelled"] },
+        "assignedVendorId": { "type": "string", "minLength": 0, "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["bookingId", "uid", "societyId", "serviceId", "serviceTitle", "category", "flatId", "tower", "serviceAddress", "preferredDate", "timeSlot", "problemDescription", "status", "createdAt", "updatedAt"]
+    },
+    "Product": {
+      "title": "Product",
+      "description": "Catalog product available for individual Buy Now purchases.",
+      "type": "object",
+      "properties": {
+        "productId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "title": { "type": "string", "minLength": 2, "maxLength": 140 },
+        "description": { "type": "string", "minLength": 2, "maxLength": 1000 },
+        "category": { "type": "string", "minLength": 2, "maxLength": 64 },
+        "imageUrl": { "type": "string", "minLength": 0, "maxLength": 500 },
+        "mrpPaise": { "type": "integer" },
+        "pricePaise": { "type": "integer" },
+        "unitLabel": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "stockQuantity": { "type": "integer" },
+        "active": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["productId", "title", "description", "category", "mrpPaise", "pricePaise", "unitLabel", "stockQuantity", "active", "createdAt"]
+    },
+    "ServiceCatalogItem": {
+      "title": "ServiceCatalogItem",
+      "description": "Hyperlocal home service category and offering.",
+      "type": "object",
+      "properties": {
+        "serviceId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "title": { "type": "string", "minLength": 2, "maxLength": 140 },
+        "category": { "type": "string", "minLength": 2, "maxLength": 64 },
+        "description": { "type": "string", "minLength": 2, "maxLength": 1000 },
+        "instructions": { "type": "string", "minLength": 0, "maxLength": 600 },
+        "imageUrl": { "type": "string", "minLength": 0, "maxLength": 500 },
+        "startingPricePaise": { "type": "integer" },
+        "available": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["serviceId", "title", "category", "description", "startingPricePaise", "available", "createdAt"]
+    },
+    "StaffMember": {
+      "title": "StaffMember",
+      "description": "Authorized administrative or operations staff member.",
+      "type": "object",
+      "properties": {
+        "staffId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "minLength": 2, "maxLength": 100 },
+        "email": { "type": "string", "minLength": 3, "maxLength": 160 },
+        "roleId": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "assignedSocietyIds": { "type": "array" },
+        "status": { "type": "string", "enum": ["active", "suspended"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["staffId", "uid", "name", "email", "roleId", "status", "createdAt"]
+    },
+    "Role": {
+      "title": "Role",
+      "description": "Server-controlled RBAC role definition with granular permissions.",
+      "type": "object",
+      "properties": {
+        "roleId": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "minLength": 2, "maxLength": 80 },
+        "description": { "type": "string", "minLength": 0, "maxLength": 300 },
+        "permissions": { "type": "array" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["roleId", "name", "permissions", "createdAt"]
+    },
+    "Vendor": {
+      "title": "Vendor",
+      "description": "Service or product vendor record.",
+      "type": "object",
+      "properties": {
+        "vendorId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "businessName": { "type": "string", "minLength": 2, "maxLength": 140 },
+        "category": { "type": "string", "minLength": 2, "maxLength": 64 },
+        "status": { "type": "string", "enum": ["active", "inactive"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["vendorId", "uid", "businessName", "category", "status", "createdAt"]
+    },
+    "Payment": {
+      "title": "Payment",
+      "description": "Server-verified payment record (never writable by clients).",
+      "type": "object",
+      "properties": {
+        "paymentId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "societyId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "orderId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "amountPaise": { "type": "integer" },
+        "status": { "type": "string", "enum": ["pending", "captured", "failed"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["paymentId", "uid", "societyId", "orderId", "amountPaise", "status", "createdAt"]
+    },
+    "Refund": {
+      "title": "Refund",
+      "description": "Server-verified refund record.",
+      "type": "object",
+      "properties": {
+        "refundId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "paymentId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "societyId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "amountPaise": { "type": "integer" },
+        "status": { "type": "string", "enum": ["pending", "processed", "failed"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["refundId", "paymentId", "societyId", "amountPaise", "status", "createdAt"]
+    },
+    "WorkOrder": {
+      "title": "WorkOrder",
+      "description": "Assigned technician/vendor work order.",
+      "type": "object",
+      "properties": {
+        "workOrderId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "vendorId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "societyId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "bookingId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "status": { "type": "string", "enum": ["assigned", "in_progress", "completed", "cancelled"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["workOrderId", "vendorId", "societyId", "bookingId", "status", "createdAt"]
+    },
+    "Settlement": {
+      "title": "Settlement",
+      "description": "Admin-managed vendor settlement payout record.",
+      "type": "object",
+      "properties": {
+        "settlementId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "vendorId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "amountPaise": { "type": "integer" },
+        "status": { "type": "string", "enum": ["pending", "settled"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["settlementId", "vendorId", "amountPaise", "status", "createdAt"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "User notification document with optional deduplication key.",
+      "type": "object",
+      "properties": {
+        "notificationId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "societyId": { "type": "string", "minLength": 0, "maxLength": 128 },
+        "type": { "type": "string", "minLength": 0, "maxLength": 48 },
+        "title": { "type": "string", "minLength": 1, "maxLength": 140 },
+        "body": { "type": "string", "minLength": 1, "maxLength": 500 },
+        "read": { "type": "boolean" },
+        "dedupeKey": { "type": "string", "minLength": 0, "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["notificationId", "uid", "title", "body", "read", "createdAt"]
+    },
+    "AuditLog": {
+      "title": "AuditLog",
+      "description": "Append-only security and administrative audit trail.",
+      "type": "object",
+      "properties": {
+        "logId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "actorUid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "actorEmail": { "type": "string", "minLength": 0, "maxLength": 160 },
+        "actorRole": { "type": "string", "minLength": 0, "maxLength": 64 },
+        "action": { "type": "string", "minLength": 2, "maxLength": 100 },
+        "targetCollection": { "type": "string", "minLength": 2, "maxLength": 100 },
+        "targetId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "targetUid": { "type": "string", "minLength": 0, "maxLength": 128 },
+        "resourceType": { "type": "string", "minLength": 0, "maxLength": 64 },
+        "resourceId": { "type": "string", "minLength": 0, "maxLength": 128 },
+        "societyId": { "type": "string", "minLength": 0, "maxLength": 128 },
+        "status": { "type": "string", "enum": ["success", "denied", "error"] },
+        "reason": { "type": "string", "minLength": 0, "maxLength": 240 },
+        "details": { "type": "string", "minLength": 0, "maxLength": 500 },
+        "metadata": { "type": "object" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["logId", "actorUid", "action", "targetCollection", "targetId", "createdAt"]
+    },
+    "ConnectionTest": {
+      "title": "ConnectionTest",
+      "description": "Read-only connection verification document.",
+      "type": "object",
+      "properties": {
+        "status": { "type": "string", "maxLength": 32 }
+      }
+    }
+  },
+  "firestore": {
+    "/users/{uid}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "User profile and membership status (PII restricted to owner and authorized admins)."
+    },
+    "/societies/{societyId}": {
+      "schema": { "$ref": "#/entities/Society" },
+      "description": "Residential society tenant records."
+    },
+    "/invitations/{inviteCode}": {
+      "schema": { "$ref": "#/entities/Invitation" },
+      "description": "Legacy Phase 1 invitation records locked to admins in Phase 2."
+    },
+    "/invitationCodes/{codeId}": {
+      "schema": { "$ref": "#/entities/InvitationCode" },
+      "description": "Admin/server-only hashed invitation code records (never exposed to customers)."
+    },
+    "/invitationLookups/{codeHash}": {
+      "schema": { "$ref": "#/entities/InvitationLookup" },
+      "description": "SHA-256 keyed get-only lookup projection for invitation verification without leaking code records or society directory."
+    },
+    "/societies/{societyId}/members/{uid}": {
+      "schema": { "$ref": "#/entities/Membership" },
+      "description": "Society membership and flat verification requests."
+    },
+    "/societies/{societyId}/flats/{flatId}": {
+      "schema": { "$ref": "#/entities/Flat" },
+      "description": "Flat directory within a society with occupancy status and primaryResidentUid lock."
+    },
+    "/societies/{societyId}/verificationHistory/{historyId}": {
+      "schema": { "$ref": "#/entities/VerificationHistory" },
+      "description": "Append-only membership verification lifecycle history."
+    },
+    "/societies/{societyId}/campaigns/{campaignId}": {
+      "schema": { "$ref": "#/entities/Campaign" },
+      "description": "Bulk vendor offer campaigns isolated per society."
+    },
+    "/societies/{societyId}/groupCampaigns/{campaignId}": {
+      "schema": { "$ref": "#/entities/GroupCampaign" },
+      "description": "Group buying campaigns isolated per society."
+    },
+    "/societies/{societyId}/participations/{participationId}": {
+      "schema": { "$ref": "#/entities/Participation" },
+      "description": "Resident campaign participation records isolated per society."
+    },
+    "/societies/{societyId}/orders/{orderId}": {
+      "schema": { "$ref": "#/entities/Order" },
+      "description": "Individual Buy Now orders isolated per society and resident."
+    },
+    "/societies/{societyId}/serviceBookings/{bookingId}": {
+      "schema": { "$ref": "#/entities/ServiceBooking" },
+      "description": "Hyperlocal home service bookings isolated per society and resident."
+    },
+    "/staff/{staffId}": {
+      "schema": { "$ref": "#/entities/StaffMember" },
+      "description": "Administrative staff records."
+    },
+    "/roles/{roleId}": {
+      "schema": { "$ref": "#/entities/Role" },
+      "description": "Role-based access control definitions."
+    },
+    "/vendors/{vendorId}": {
+      "schema": { "$ref": "#/entities/Vendor" },
+      "description": "Service and product vendors."
+    },
+    "/products/{productId}": {
+      "schema": { "$ref": "#/entities/Product" },
+      "description": "Buy Now catalog products."
+    },
+    "/services/{serviceId}": {
+      "schema": { "$ref": "#/entities/ServiceCatalogItem" },
+      "description": "Hyperlocal home services catalog."
+    },
+    "/payments/{paymentId}": {
+      "schema": { "$ref": "#/entities/Payment" },
+      "description": "Server-controlled payment records."
+    },
+    "/refunds/{refundId}": {
+      "schema": { "$ref": "#/entities/Refund" },
+      "description": "Server-controlled refund records."
+    },
+    "/workOrders/{workOrderId}": {
+      "schema": { "$ref": "#/entities/WorkOrder" },
+      "description": "Vendor-scoped work orders."
+    },
+    "/settlements/{settlementId}": {
+      "schema": { "$ref": "#/entities/Settlement" },
+      "description": "Admin-only vendor financial settlements."
+    },
+    "/notifications/{notificationId}": {
+      "schema": { "$ref": "#/entities/Notification" },
+      "description": "User-scoped notifications."
+    },
+    "/auditLogs/{logId}": {
+      "schema": { "$ref": "#/entities/AuditLog" },
+      "description": "Append-only audit trail."
+    },
+    "/test/{docId}": {
+      "schema": { "$ref": "#/entities/ConnectionTest" },
+      "description": "Startup Firestore connectivity probe."
+    }
+  }
+}

@@ -1,0 +1,1046 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global deny-by-default safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // =========================================================================
+    // Primitive Security & Identity Helpers
+    // =========================================================================
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedAuth() {
+      return isSignedIn() && (
+        request.auth.token.email_verified == true ||
+        request.auth.token.phone_number != null
+      );
+    }
+
+    function isOwner(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    function isBootstrappedSuperAdmin() {
+      return isSignedIn() &&
+        request.auth.token.email_verified == true &&
+        request.auth.token.email == 'sandeeprana4519@gmail.com';
+    }
+
+    function isActiveStaff() {
+      return isSignedIn() &&
+        request.auth.token.email_verified == true &&
+        exists(/databases/$(database)/documents/staff/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/staff/$(request.auth.uid)).data.status == 'active';
+    }
+
+    function staffRoleId() {
+      return get(/databases/$(database)/documents/staff/$(request.auth.uid)).data.roleId;
+    }
+
+    function hasStaffPermission(perm) {
+      return isActiveStaff() &&
+        exists(/databases/$(database)/documents/roles/$(staffRoleId())) &&
+        (
+          perm in get(/databases/$(database)/documents/roles/$(staffRoleId())).data.permissions ||
+          '*' in get(/databases/$(database)/documents/roles/$(staffRoleId())).data.permissions
+        );
+    }
+
+    function isAdminOrAnyPerm(perm1, perm2) {
+      return isBootstrappedSuperAdmin() || hasStaffPermission(perm1) || hasStaffPermission(perm2);
+    }
+
+    function isAdminOrThreePerms(perm1, perm2, perm3) {
+      return isBootstrappedSuperAdmin() || hasStaffPermission(perm1) || hasStaffPermission(perm2) || hasStaffPermission(perm3);
+    }
+
+    function isAdminOrPerm(perm) {
+      return isBootstrappedSuperAdmin() || hasStaffPermission(perm);
+    }
+
+    function isVerifiedMemberOf(societyId) {
+      return isVerifiedAuth() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.accountStatus == 'active' &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.membershipStatus == 'approved' &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.societyId == societyId &&
+        exists(/databases/$(database)/documents/societies/$(societyId)/members/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/societies/$(societyId)/members/$(request.auth.uid)).data.verificationStatus == 'approved';
+    }
+
+    function isAnyVerifiedSocietyMember() {
+      return isVerifiedAuth() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.accountStatus == 'active' &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.membershipStatus == 'approved' &&
+        'societyId' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data &&
+        isValidId(get(/databases/$(database)/documents/users/$(request.auth.uid)).data.societyId) &&
+        exists(/databases/$(database)/documents/societies/$(get(/databases/$(database)/documents/users/$(request.auth.uid)).data.societyId)/members/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/societies/$(get(/databases/$(database)/documents/users/$(request.auth.uid)).data.societyId)/members/$(request.auth.uid)).data.verificationStatus == 'approved';
+    }
+
+    function isVendorOwner(vendorId) {
+      return isVerifiedAuth() &&
+        exists(/databases/$(database)/documents/vendors/$(vendorId)) &&
+        get(/databases/$(database)/documents/vendors/$(vendorId)).data.uid == request.auth.uid &&
+        get(/databases/$(database)/documents/vendors/$(vendorId)).data.status == 'active';
+    }
+
+    // =========================================================================
+    // Entity Validation Blueprints (Phase 1 + Phase 2)
+    // =========================================================================
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'name', 'membershipStatus', 'accountStatus', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly([
+          'uid', 'name', 'fullName', 'phoneNumber', 'email', 'alternateContact',
+          'societyId', 'flatId', 'flatNumber', 'tower', 'residentType', 'addressConfirmed',
+          'accountType', 'membershipStatus', 'accountStatus', 'rejectionReason',
+          'suspensionReason', 'infoRequestNote', 'verifiedAt', 'verifiedBy',
+          'approvalAcknowledged', 'fcmToken', 'preferredLocale', 'createdAt', 'updatedAt'
+        ]) &&
+        isValidId(data.uid) &&
+        data.name is string && data.name.size() >= 1 && data.name.size() <= 100 &&
+        (!('fullName' in data) || (data.fullName is string && data.fullName.size() >= 1 && data.fullName.size() <= 100)) &&
+        (!('phoneNumber' in data) || (data.phoneNumber is string && data.phoneNumber.size() <= 20)) &&
+        (!('email' in data) || (data.email is string && data.email.size() <= 160)) &&
+        (!('alternateContact' in data) || (data.alternateContact is string && data.alternateContact.size() <= 20)) &&
+        (!('societyId' in data) || (data.societyId is string && data.societyId.size() <= 128)) &&
+        (!('flatId' in data) || (data.flatId is string && data.flatId.size() <= 64)) &&
+        (!('flatNumber' in data) || (data.flatNumber is string && data.flatNumber.size() <= 32)) &&
+        (!('tower' in data) || (data.tower is string && data.tower.size() <= 64)) &&
+        (!('residentType' in data) || data.residentType in ['Owner', 'Tenant']) &&
+        (!('addressConfirmed' in data) || data.addressConfirmed is bool) &&
+        (!('accountType' in data) || data.accountType in ['customer', 'admin', 'staff', 'vendor']) &&
+        data.membershipStatus in ['unverified', 'not_submitted', 'pending', 'approved', 'rejected', 'suspended'] &&
+        data.accountStatus in ['active', 'suspended', 'blocked'] &&
+        (!('rejectionReason' in data) || (data.rejectionReason is string && data.rejectionReason.size() <= 240)) &&
+        (!('suspensionReason' in data) || (data.suspensionReason is string && data.suspensionReason.size() <= 240)) &&
+        (!('infoRequestNote' in data) || (data.infoRequestNote is string && data.infoRequestNote.size() <= 300)) &&
+        (!('verifiedAt' in data) || data.verifiedAt is timestamp) &&
+        (!('verifiedBy' in data) || (data.verifiedBy is string && data.verifiedBy.size() <= 128)) &&
+        (!('approvalAcknowledged' in data) || data.approvalAcknowledged is bool) &&
+        (!('fcmToken' in data) || (data.fcmToken is string && data.fcmToken.size() <= 512)) &&
+        (!('preferredLocale' in data) || data.preferredLocale in ['en', 'hi']) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidSociety(data) {
+      return data.keys().hasAll(['societyId', 'societyName', 'address', 'city', 'state', 'pincode', 'invitationCode', 'status', 'createdAt']) &&
+        data.keys().hasOnly([
+          'societyId', 'societyName', 'address', 'city', 'state', 'pincode',
+          'invitationCode', 'towers', 'totalFlats', 'status', 'isDemo', 'createdAt', 'updatedAt'
+        ]) &&
+        isValidId(data.societyId) &&
+        data.societyName is string && data.societyName.size() >= 2 && data.societyName.size() <= 140 &&
+        data.address is string && data.address.size() >= 2 && data.address.size() <= 300 &&
+        data.city is string && data.city.size() >= 2 && data.city.size() <= 80 &&
+        data.state is string && data.state.size() >= 2 && data.state.size() <= 80 &&
+        data.pincode is string && data.pincode.matches('^[0-9]{6}$') &&
+        data.invitationCode is string && data.invitationCode.size() >= 4 && data.invitationCode.size() <= 32 && data.invitationCode.matches('^[A-Z0-9_\\-]+$') &&
+        (!('towers' in data) || (data.towers is list && data.towers.size() <= 100)) &&
+        (!('totalFlats' in data) || (data.totalFlats is int && data.totalFlats >= 0)) &&
+        data.status in ['active', 'inactive'] &&
+        (!('isDemo' in data) || data.isDemo is bool) &&
+        data.createdAt is timestamp &&
+        (!('updatedAt' in data) || data.updatedAt is timestamp);
+    }
+
+    function isValidInvitation(data) {
+      return data.keys().hasAll(['code', 'societyId', 'societyName', 'city', 'active', 'createdAt']) &&
+        data.keys().hasOnly(['code', 'societyId', 'societyName', 'city', 'active', 'createdAt']) &&
+        data.code is string && data.code.size() >= 4 && data.code.size() <= 32 && data.code.matches('^[A-Z0-9_\\-]+$') &&
+        isValidId(data.societyId) &&
+        data.societyName is string && data.societyName.size() >= 2 && data.societyName.size() <= 140 &&
+        data.city is string && data.city.size() >= 2 && data.city.size() <= 80 &&
+        data.active is bool &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidInvitationCodeRecord(data) {
+      return data.keys().hasAll(['codeId', 'societyId', 'societyName', 'city', 'codeHash', 'status', 'maxUses', 'usedCount', 'createdBy', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['codeId', 'societyId', 'societyName', 'city', 'codeHash', 'codePreview', 'status', 'expiresAt', 'maxUses', 'usedCount', 'createdBy', 'createdAt', 'updatedAt']) &&
+        isValidId(data.codeId) &&
+        isValidId(data.societyId) &&
+        data.societyName is string && data.societyName.size() >= 2 && data.societyName.size() <= 140 &&
+        data.city is string && data.city.size() >= 2 && data.city.size() <= 80 &&
+        data.codeHash is string && data.codeHash.size() == 64 && data.codeHash.matches('^[a-f0-9]{64}$') &&
+        (!('codePreview' in data) || (data.codePreview is string && data.codePreview.size() <= 16)) &&
+        data.status in ['active', 'inactive', 'revoked', 'expired'] &&
+        (!('expiresAt' in data) || (data.expiresAt is string && data.expiresAt.size() <= 64)) &&
+        data.maxUses is int && data.maxUses >= 1 && data.maxUses <= 10000 &&
+        data.usedCount is int && data.usedCount >= 0 &&
+        isValidId(data.createdBy) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidInvitationLookup(data) {
+      return data.keys().hasAll(['codeId', 'societyId', 'societyName', 'city', 'status', 'maxUses', 'usedCount']) &&
+        data.keys().hasOnly(['codeId', 'societyId', 'societyName', 'city', 'status', 'expiresAt', 'maxUses', 'usedCount']) &&
+        isValidId(data.codeId) &&
+        isValidId(data.societyId) &&
+        data.societyName is string && data.societyName.size() >= 2 && data.societyName.size() <= 140 &&
+        data.city is string && data.city.size() >= 2 && data.city.size() <= 80 &&
+        data.status in ['active', 'inactive', 'revoked', 'expired'] &&
+        (!('expiresAt' in data) || (data.expiresAt is string && data.expiresAt.size() <= 64)) &&
+        data.maxUses is int && data.maxUses >= 1 &&
+        data.usedCount is int && data.usedCount >= 0;
+    }
+
+    function isValidFlat(data) {
+      return data.keys().hasAll(['flatId', 'societyId', 'tower', 'flatNumber', 'occupied', 'status', 'createdAt']) &&
+        data.keys().hasOnly(['flatId', 'societyId', 'tower', 'flatNumber', 'occupied', 'status', 'primaryResidentUid', 'residentType', 'createdAt', 'updatedAt']) &&
+        isValidId(data.flatId) &&
+        isValidId(data.societyId) &&
+        data.tower is string && data.tower.size() >= 1 && data.tower.size() <= 64 &&
+        data.flatNumber is string && data.flatNumber.size() >= 1 && data.flatNumber.size() <= 32 &&
+        data.occupied is bool &&
+        data.status in ['Available', 'Occupied', 'Verification Pending', 'Active', 'Suspended'] &&
+        (!('primaryResidentUid' in data) || (data.primaryResidentUid is string && data.primaryResidentUid.size() <= 128)) &&
+        (!('residentType' in data) || data.residentType in ['Owner', 'Tenant']) &&
+        data.createdAt is timestamp &&
+        (!('updatedAt' in data) || data.updatedAt is timestamp);
+    }
+
+    function isValidMembership(data) {
+      return data.keys().hasAll(['uid', 'societyId', 'flatId', 'tower', 'residentName', 'verificationStatus', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly([
+          'uid', 'societyId', 'flatId', 'flatNumber', 'tower', 'residentName',
+          'residentType', 'phoneNumber', 'email', 'alternateContact', 'addressConfirmed',
+          'invitationCode', 'invitationCodeId', 'verificationStatus', 'rejectionReason',
+          'suspensionReason', 'infoRequestNote', 'verifiedBy', 'verifiedAt', 'createdAt', 'updatedAt'
+        ]) &&
+        isValidId(data.uid) &&
+        isValidId(data.societyId) &&
+        data.flatId is string && data.flatId.size() >= 1 && data.flatId.size() <= 64 &&
+        (!('flatNumber' in data) || (data.flatNumber is string && data.flatNumber.size() <= 32)) &&
+        data.tower is string && data.tower.size() >= 1 && data.tower.size() <= 64 &&
+        data.residentName is string && data.residentName.size() >= 1 && data.residentName.size() <= 100 &&
+        (!('residentType' in data) || data.residentType in ['Owner', 'Tenant']) &&
+        (!('phoneNumber' in data) || (data.phoneNumber is string && data.phoneNumber.size() <= 20)) &&
+        (!('email' in data) || (data.email is string && data.email.size() <= 160)) &&
+        (!('alternateContact' in data) || (data.alternateContact is string && data.alternateContact.size() <= 20)) &&
+        (!('addressConfirmed' in data) || data.addressConfirmed is bool) &&
+        (!('invitationCode' in data) || (data.invitationCode is string && data.invitationCode.size() <= 64)) &&
+        (!('invitationCodeId' in data) || (data.invitationCodeId is string && data.invitationCodeId.size() <= 128)) &&
+        data.verificationStatus in ['pending', 'approved', 'rejected', 'suspended'] &&
+        (!('rejectionReason' in data) || (data.rejectionReason is string && data.rejectionReason.size() <= 240)) &&
+        (!('suspensionReason' in data) || (data.suspensionReason is string && data.suspensionReason.size() <= 240)) &&
+        (!('infoRequestNote' in data) || (data.infoRequestNote is string && data.infoRequestNote.size() <= 300)) &&
+        (!('verifiedBy' in data) || (data.verifiedBy is string && data.verifiedBy.size() <= 128)) &&
+        (!('verifiedAt' in data) || data.verifiedAt is timestamp) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidVerificationHistory(data) {
+      return data.keys().hasAll(['historyId', 'uid', 'societyId', 'flatId', 'tower', 'action', 'newStatus', 'actorUid', 'createdAt']) &&
+        data.keys().hasOnly(['historyId', 'uid', 'societyId', 'flatId', 'tower', 'action', 'previousStatus', 'newStatus', 'actorUid', 'actorEmail', 'note', 'createdAt']) &&
+        isValidId(data.historyId) &&
+        isValidId(data.uid) &&
+        isValidId(data.societyId) &&
+        data.flatId is string && data.flatId.size() >= 1 && data.flatId.size() <= 64 &&
+        data.tower is string && data.tower.size() >= 1 && data.tower.size() <= 64 &&
+        data.action in ['submitted', 'resubmitted', 'approved', 'rejected', 'info_requested', 'suspended', 'reactivated', 'society_change_requested'] &&
+        (!('previousStatus' in data) || (data.previousStatus is string && data.previousStatus.size() <= 32)) &&
+        data.newStatus is string && data.newStatus.size() >= 1 && data.newStatus.size() <= 32 &&
+        isValidId(data.actorUid) &&
+        (!('actorEmail' in data) || (data.actorEmail is string && data.actorEmail.size() <= 160)) &&
+        (!('note' in data) || (data.note is string && data.note.size() <= 300)) &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidCampaign(data) {
+      return data.keys().hasAll(['campaignId', 'societyId', 'title', 'description', 'regularPricePaise', 'offerPricePaise', 'minimumTarget', 'maximumCapacity', 'currentParticipants', 'bookingDeadline', 'scheduledDate', 'status', 'createdAt']) &&
+        data.keys().hasOnly(['campaignId', 'societyId', 'title', 'description', 'category', 'imageUrl', 'regularPricePaise', 'offerPricePaise', 'minimumTarget', 'maximumCapacity', 'currentParticipants', 'bookingDeadline', 'scheduledDate', 'status', 'createdAt', 'updatedAt']) &&
+        isValidId(data.campaignId) &&
+        isValidId(data.societyId) &&
+        data.title is string && data.title.size() >= 2 && data.title.size() <= 140 &&
+        data.description is string && data.description.size() >= 2 && data.description.size() <= 1000 &&
+        (!('category' in data) || (data.category is string && data.category.size() <= 64)) &&
+        (!('imageUrl' in data) || (data.imageUrl is string && data.imageUrl.size() <= 500)) &&
+        data.regularPricePaise is int && data.regularPricePaise > 0 &&
+        data.offerPricePaise is int && data.offerPricePaise > 0 && data.offerPricePaise <= data.regularPricePaise &&
+        data.minimumTarget is int && data.minimumTarget >= 1 &&
+        data.maximumCapacity is int && data.maximumCapacity >= data.minimumTarget &&
+        data.currentParticipants is int && data.currentParticipants >= 0 &&
+        data.bookingDeadline is string && data.bookingDeadline.size() >= 4 && data.bookingDeadline.size() <= 64 &&
+        data.scheduledDate is string && data.scheduledDate.size() >= 4 && data.scheduledDate.size() <= 64 &&
+        data.status in ['draft', 'active', 'target_met', 'closed', 'cancelled'] &&
+        data.createdAt is timestamp &&
+        (!('updatedAt' in data) || data.updatedAt is timestamp);
+    }
+
+    function isValidGroupCampaign(data) {
+      return data.keys().hasAll(['campaignId', 'societyId', 'title', 'description', 'marketPricePaise', 'groupPricePaise', 'minimumGroupQuantity', 'currentQuantity', 'deadline', 'expectedDeliveryDate', 'status', 'createdAt']) &&
+        data.keys().hasOnly(['campaignId', 'societyId', 'title', 'description', 'unitLabel', 'imageUrl', 'marketPricePaise', 'groupPricePaise', 'minimumGroupQuantity', 'maximumGroupQuantity', 'currentQuantity', 'deadline', 'expectedDeliveryDate', 'status', 'createdAt', 'updatedAt']) &&
+        isValidId(data.campaignId) &&
+        isValidId(data.societyId) &&
+        data.title is string && data.title.size() >= 2 && data.title.size() <= 140 &&
+        data.description is string && data.description.size() >= 2 && data.description.size() <= 1000 &&
+        (!('unitLabel' in data) || (data.unitLabel is string && data.unitLabel.size() <= 64)) &&
+        (!('imageUrl' in data) || (data.imageUrl is string && data.imageUrl.size() <= 500)) &&
+        data.marketPricePaise is int && data.marketPricePaise > 0 &&
+        data.groupPricePaise is int && data.groupPricePaise > 0 && data.groupPricePaise <= data.marketPricePaise &&
+        data.minimumGroupQuantity is int && data.minimumGroupQuantity >= 1 &&
+        data.currentQuantity is int && data.currentQuantity >= 0 &&
+        data.deadline is string && data.deadline.size() >= 4 && data.deadline.size() <= 64 &&
+        data.expectedDeliveryDate is string && data.expectedDeliveryDate.size() >= 4 && data.expectedDeliveryDate.size() <= 64 &&
+        data.status in ['draft', 'active', 'target_met', 'closed', 'cancelled'] &&
+        data.createdAt is timestamp &&
+        (!('updatedAt' in data) || data.updatedAt is timestamp);
+    }
+
+    function isValidParticipation(data) {
+      return data.keys().hasAll(['participationId', 'uid', 'societyId', 'campaignId', 'campaignType', 'campaignTitle', 'quantity', 'unitPricePaise', 'flatId', 'tower', 'status', 'createdAt']) &&
+        data.keys().hasOnly(['participationId', 'uid', 'societyId', 'campaignId', 'campaignType', 'campaignTitle', 'quantity', 'unitPricePaise', 'flatId', 'tower', 'status', 'createdAt']) &&
+        isValidId(data.participationId) &&
+        isValidId(data.uid) &&
+        isValidId(data.societyId) &&
+        isValidId(data.campaignId) &&
+        data.campaignType in ['bulk_offer', 'group_buy'] &&
+        data.campaignTitle is string && data.campaignTitle.size() >= 1 && data.campaignTitle.size() <= 140 &&
+        data.quantity is int && data.quantity >= 1 && data.quantity <= 20 &&
+        data.unitPricePaise is int && data.unitPricePaise > 0 &&
+        data.flatId is string && data.flatId.size() >= 1 && data.flatId.size() <= 64 &&
+        data.tower is string && data.tower.size() >= 1 && data.tower.size() <= 64 &&
+        data.status in ['joined', 'confirmed', 'cancelled'] &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidOrder(data) {
+      return data.keys().hasAll(['orderId', 'uid', 'societyId', 'flatId', 'tower', 'items', 'totalAmountPaise', 'paymentStatus', 'orderStatus', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['orderId', 'uid', 'societyId', 'flatId', 'tower', 'items', 'totalAmountPaise', 'paymentStatus', 'orderStatus', 'idempotencyKey', 'createdAt', 'updatedAt']) &&
+        isValidId(data.orderId) &&
+        isValidId(data.uid) &&
+        isValidId(data.societyId) &&
+        data.flatId is string && data.flatId.size() >= 1 && data.flatId.size() <= 64 &&
+        data.tower is string && data.tower.size() >= 1 && data.tower.size() <= 64 &&
+        data.items is list && data.items.size() >= 1 && data.items.size() <= 50 &&
+        data.items[0] is map &&
+        data.totalAmountPaise is int && data.totalAmountPaise > 0 &&
+        data.paymentStatus in ['payment_integration_pending', 'pending', 'paid', 'failed', 'refunded'] &&
+        data.orderStatus in ['placed', 'confirmed', 'packed', 'out_for_delivery', 'delivered', 'cancelled'] &&
+        (!('idempotencyKey' in data) || (data.idempotencyKey is string && data.idempotencyKey.size() >= 4 && data.idempotencyKey.size() <= 128)) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidServiceBooking(data) {
+      return data.keys().hasAll(['bookingId', 'uid', 'societyId', 'serviceId', 'serviceTitle', 'category', 'flatId', 'tower', 'serviceAddress', 'preferredDate', 'timeSlot', 'problemDescription', 'status', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['bookingId', 'uid', 'societyId', 'serviceId', 'serviceTitle', 'category', 'flatId', 'tower', 'serviceAddress', 'preferredDate', 'timeSlot', 'problemDescription', 'quotedPricePaise', 'status', 'assignedVendorId', 'createdAt', 'updatedAt']) &&
+        isValidId(data.bookingId) &&
+        isValidId(data.uid) &&
+        isValidId(data.societyId) &&
+        isValidId(data.serviceId) &&
+        data.serviceTitle is string && data.serviceTitle.size() >= 2 && data.serviceTitle.size() <= 140 &&
+        data.category is string && data.category.size() >= 2 && data.category.size() <= 64 &&
+        data.flatId is string && data.flatId.size() >= 1 && data.flatId.size() <= 64 &&
+        data.tower is string && data.tower.size() >= 1 && data.tower.size() <= 64 &&
+        data.serviceAddress is string && data.serviceAddress.size() >= 4 && data.serviceAddress.size() <= 300 &&
+        data.preferredDate is string && data.preferredDate.size() >= 4 && data.preferredDate.size() <= 32 &&
+        data.timeSlot is string && data.timeSlot.size() >= 2 && data.timeSlot.size() <= 64 &&
+        data.problemDescription is string && data.problemDescription.size() >= 5 && data.problemDescription.size() <= 1000 &&
+        (!('quotedPricePaise' in data) || (data.quotedPricePaise is int && data.quotedPricePaise >= 0)) &&
+        data.status in ['requested', 'assigned', 'in_progress', 'completed', 'cancelled'] &&
+        (!('assignedVendorId' in data) || (data.assignedVendorId is string && data.assignedVendorId.size() <= 128)) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidProduct(data) {
+      return data.keys().hasAll(['productId', 'title', 'description', 'category', 'mrpPaise', 'pricePaise', 'unitLabel', 'stockQuantity', 'active', 'createdAt']) &&
+        data.keys().hasOnly(['productId', 'title', 'description', 'category', 'imageUrl', 'mrpPaise', 'pricePaise', 'unitLabel', 'stockQuantity', 'active', 'createdAt']) &&
+        isValidId(data.productId) &&
+        data.title is string && data.title.size() >= 2 && data.title.size() <= 140 &&
+        data.description is string && data.description.size() >= 2 && data.description.size() <= 1000 &&
+        data.category is string && data.category.size() >= 2 && data.category.size() <= 64 &&
+        (!('imageUrl' in data) || (data.imageUrl is string && data.imageUrl.size() <= 500)) &&
+        data.mrpPaise is int && data.mrpPaise > 0 &&
+        data.pricePaise is int && data.pricePaise > 0 && data.pricePaise <= data.mrpPaise &&
+        data.unitLabel is string && data.unitLabel.size() >= 1 && data.unitLabel.size() <= 64 &&
+        data.stockQuantity is int && data.stockQuantity >= 0 &&
+        data.active is bool &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidServiceItem(data) {
+      return data.keys().hasAll(['serviceId', 'title', 'category', 'description', 'startingPricePaise', 'available', 'createdAt']) &&
+        data.keys().hasOnly(['serviceId', 'title', 'category', 'description', 'instructions', 'imageUrl', 'startingPricePaise', 'available', 'createdAt']) &&
+        isValidId(data.serviceId) &&
+        data.title is string && data.title.size() >= 2 && data.title.size() <= 140 &&
+        data.category is string && data.category.size() >= 2 && data.category.size() <= 64 &&
+        data.description is string && data.description.size() >= 2 && data.description.size() <= 1000 &&
+        (!('instructions' in data) || (data.instructions is string && data.instructions.size() <= 600)) &&
+        (!('imageUrl' in data) || (data.imageUrl is string && data.imageUrl.size() <= 500)) &&
+        data.startingPricePaise is int && data.startingPricePaise >= 0 &&
+        data.available is bool &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidStaff(data) {
+      return data.keys().hasAll(['staffId', 'uid', 'name', 'email', 'roleId', 'status', 'createdAt']) &&
+        data.keys().hasOnly(['staffId', 'uid', 'name', 'email', 'roleId', 'assignedSocietyIds', 'status', 'createdAt']) &&
+        isValidId(data.staffId) &&
+        isValidId(data.uid) &&
+        data.name is string && data.name.size() >= 2 && data.name.size() <= 100 &&
+        data.email is string && data.email.size() >= 3 && data.email.size() <= 160 &&
+        isValidId(data.roleId) &&
+        (!('assignedSocietyIds' in data) || (data.assignedSocietyIds is list && data.assignedSocietyIds.size() <= 100 && (data.assignedSocietyIds.size() == 0 || data.assignedSocietyIds[0] is string))) &&
+        data.status in ['active', 'suspended'] &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidRole(data) {
+      return data.keys().hasAll(['roleId', 'name', 'permissions', 'createdAt']) &&
+        data.keys().hasOnly(['roleId', 'name', 'description', 'permissions', 'createdAt']) &&
+        isValidId(data.roleId) &&
+        data.name is string && data.name.size() >= 2 && data.name.size() <= 80 &&
+        (!('description' in data) || (data.description is string && data.description.size() <= 300)) &&
+        data.permissions is list && data.permissions.size() >= 1 && data.permissions.size() <= 50 &&
+        data.permissions[0] is string &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidAuditLog(data) {
+      return data.keys().hasAll(['logId', 'actorUid', 'action', 'targetCollection', 'targetId', 'createdAt']) &&
+        data.keys().hasOnly([
+          'logId', 'actorUid', 'actorEmail', 'actorRole', 'action',
+          'targetCollection', 'targetId', 'targetUid', 'resourceType', 'resourceId',
+          'societyId', 'status', 'reason', 'details', 'metadata', 'timestamp', 'createdAt'
+        ]) &&
+        isValidId(data.logId) &&
+        isValidId(data.actorUid) &&
+        (!('actorEmail' in data) || (data.actorEmail is string && data.actorEmail.size() <= 160)) &&
+        (!('actorRole' in data) || (data.actorRole is string && data.actorRole.size() <= 64)) &&
+        data.action is string && data.action.size() >= 2 && data.action.size() <= 100 &&
+        data.targetCollection is string && data.targetCollection.size() >= 2 && data.targetCollection.size() <= 100 &&
+        data.targetId is string && data.targetId.size() >= 1 && data.targetId.size() <= 128 &&
+        (!('targetUid' in data) || (data.targetUid is string && data.targetUid.size() <= 128)) &&
+        (!('resourceType' in data) || (data.resourceType is string && data.resourceType.size() <= 64)) &&
+        (!('resourceId' in data) || (data.resourceId is string && data.resourceId.size() <= 128)) &&
+        (!('societyId' in data) || (data.societyId is string && data.societyId.size() <= 128)) &&
+        (!('status' in data) || data.status in ['success', 'denied', 'error']) &&
+        (!('reason' in data) || (data.reason is string && data.reason.size() <= 240)) &&
+        (!('details' in data) || (data.details is string && data.details.size() <= 500)) &&
+        (!('metadata' in data) || data.metadata is map) &&
+        (!('timestamp' in data) || data.timestamp is timestamp) &&
+        data.createdAt is timestamp;
+    }
+
+    // =========================================================================
+    // Connectivity Probe
+    // =========================================================================
+
+    match /test/{docId} {
+      allow get: if isValidId(docId);
+      allow list, write: if false;
+    }
+
+    // =========================================================================
+    // Users (Strict PII Isolation & Immutable Verification Fields)
+    // =========================================================================
+
+    match /users/{uid} {
+      allow get: if isValidId(uid) && (isOwner(uid) || isAdminOrAnyPerm('customer.view', 'customers:read'));
+      allow list: if isAdminOrAnyPerm('customer.view', 'customers:read');
+
+      allow create: if isValidId(uid) &&
+        isVerifiedAuth() &&
+        isValidUser(incoming()) &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        (
+          (
+            isOwner(uid) &&
+            incoming().uid == request.auth.uid &&
+            incoming().membershipStatus in ['unverified', 'not_submitted'] &&
+            incoming().accountStatus == 'active' &&
+            (!('accountType' in incoming()) || incoming().accountType == 'customer') &&
+            !('societyId' in incoming()) &&
+            !('verifiedBy' in incoming()) &&
+            !('verifiedAt' in incoming())
+          ) ||
+          isAdminOrAnyPerm('customer.verify', 'customers:write')
+        );
+
+      allow update: if isValidId(uid) &&
+        isVerifiedAuth() &&
+        isValidUser(incoming()) &&
+        incoming().uid == existing().uid &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        (
+          (
+            (
+              isAdminOrThreePerms('customer.verify', 'customer.reject', 'customer.suspend') ||
+              isAdminOrPerm('customers:write')
+            ) &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'membershipStatus', 'accountStatus', 'societyId', 'flatId', 'flatNumber',
+              'tower', 'rejectionReason', 'suspensionReason', 'infoRequestNote',
+              'verifiedBy', 'verifiedAt', 'approvalAcknowledged', 'updatedAt'
+            ])
+          ) ||
+          (
+            isOwner(uid) &&
+            existing().accountStatus == 'active' &&
+            incoming().accountStatus == existing().accountStatus &&
+            incoming().membershipStatus == existing().membershipStatus &&
+            (!('societyId' in existing()) || incoming().societyId == existing().societyId) &&
+            (!('flatId' in existing()) || incoming().flatId == existing().flatId) &&
+            (!('flatNumber' in existing()) || incoming().flatNumber == existing().flatNumber) &&
+            (!('tower' in existing()) || incoming().tower == existing().tower) &&
+            (!('accountType' in existing()) || incoming().accountType == existing().accountType) &&
+            (!('verifiedBy' in existing()) || incoming().verifiedBy == existing().verifiedBy) &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'name', 'fullName', 'email', 'alternateContact',
+              'approvalAcknowledged', 'fcmToken', 'preferredLocale', 'updatedAt'
+            ])
+          ) ||
+          (
+            isOwner(uid) &&
+            existing().accountStatus == 'active' &&
+            existing().membershipStatus in ['unverified', 'not_submitted', 'rejected'] &&
+            incoming().accountStatus == 'active' &&
+            incoming().membershipStatus == 'pending' &&
+            (!('accountType' in existing()) || incoming().accountType == existing().accountType) &&
+            isValidId(incoming().societyId) &&
+            exists(/databases/$(database)/documents/societies/$(incoming().societyId)) &&
+            existsAfter(/databases/$(database)/documents/societies/$(incoming().societyId)/members/$(uid)) &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'name', 'fullName', 'email', 'alternateContact', 'societyId',
+              'flatId', 'flatNumber', 'tower', 'residentType', 'addressConfirmed',
+              'membershipStatus', 'rejectionReason', 'infoRequestNote', 'updatedAt'
+            ])
+          )
+        );
+
+      allow delete: if false;
+    }
+
+    // =========================================================================
+    // Invitations (Plaintext Records Admin-Only; Customer Lookups by SHA-256 Hash Only)
+    // =========================================================================
+
+    match /invitations/{inviteCode} {
+      allow get, list: if isAdminOrAnyPerm('society.view', 'societies:read');
+      allow create, update: if isValidId(inviteCode) &&
+        isAdminOrThreePerms('invitation.create', 'society.create', 'societies:write') &&
+        isValidInvitation(incoming()) &&
+        incoming().code == inviteCode;
+      allow delete: if isValidId(inviteCode) && isAdminOrAnyPerm('invitation.revoke', 'societies:write');
+    }
+
+    match /invitationCodes/{codeId} {
+      allow get, list: if isAdminOrThreePerms('invitation.create', 'society.view', 'societies:read');
+      allow create, update: if isValidId(codeId) &&
+        isAdminOrThreePerms('invitation.create', 'invitation.revoke', 'societies:write') &&
+        isValidInvitationCodeRecord(incoming()) &&
+        incoming().codeId == codeId;
+      allow delete: if false;
+    }
+
+    match /invitationLookups/{codeHash} {
+      allow get: if isValidId(codeHash) && isVerifiedAuth();
+      allow list: if isAdminOrAnyPerm('society.view', 'societies:read');
+      allow create, update: if isValidId(codeHash) &&
+        isAdminOrThreePerms('invitation.create', 'invitation.revoke', 'societies:write') &&
+        isValidInvitationLookup(incoming());
+      allow delete: if isValidId(codeHash) && isAdminOrAnyPerm('invitation.revoke', 'societies:write');
+    }
+
+    // =========================================================================
+    // Societies & Tenant-Isolated Subcollections
+    // =========================================================================
+
+    match /societies/{societyId} {
+      allow get: if isValidId(societyId) && (isAdminOrAnyPerm('society.view', 'societies:read') || isVerifiedMemberOf(societyId));
+      allow list: if isAdminOrAnyPerm('society.view', 'societies:read');
+
+      allow create: if isValidId(societyId) &&
+        isAdminOrAnyPerm('society.create', 'societies:write') &&
+        isValidSociety(incoming()) &&
+        incoming().societyId == societyId &&
+        incoming().createdAt == request.time;
+
+      allow update: if isValidId(societyId) &&
+        isAdminOrThreePerms('society.update', 'society.suspend', 'societies:write') &&
+        isValidSociety(incoming()) &&
+        incoming().societyId == existing().societyId &&
+        incoming().createdAt == existing().createdAt;
+
+      allow delete: if false;
+
+      // Memberships
+      match /members/{uid} {
+        allow get: if isValidId(uid) && isValidId(societyId) && (isOwner(uid) || isAdminOrAnyPerm('customer.view', 'customers:read'));
+        allow list: if isAdminOrAnyPerm('customer.view', 'customers:read');
+
+        allow create: if isValidId(uid) &&
+          isValidId(societyId) &&
+          isVerifiedAuth() &&
+          isValidMembership(incoming()) &&
+          incoming().uid == uid &&
+          incoming().societyId == societyId &&
+          incoming().createdAt == request.time &&
+          incoming().updatedAt == request.time &&
+          exists(/databases/$(database)/documents/societies/$(societyId)) &&
+          (
+            (
+              isOwner(uid) &&
+              incoming().verificationStatus == 'pending' &&
+              'invitationCode' in incoming() &&
+              exists(/databases/$(database)/documents/invitationLookups/$(incoming().invitationCode)) &&
+              get(/databases/$(database)/documents/invitationLookups/$(incoming().invitationCode)).data.status == 'active' &&
+              get(/databases/$(database)/documents/invitationLookups/$(incoming().invitationCode)).data.societyId == societyId &&
+              get(/databases/$(database)/documents/invitationLookups/$(incoming().invitationCode)).data.usedCount < get(/databases/$(database)/documents/invitationLookups/$(incoming().invitationCode)).data.maxUses
+            ) ||
+            isAdminOrAnyPerm('customer.verify', 'customers:write')
+          );
+
+        allow update: if isValidId(uid) &&
+          isValidId(societyId) &&
+          isValidMembership(incoming()) &&
+          incoming().uid == existing().uid &&
+          incoming().societyId == existing().societyId &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedAt == request.time &&
+          (
+            (
+              (isAdminOrThreePerms('customer.verify', 'customer.reject', 'customer.suspend') || isAdminOrPerm('customers:write')) &&
+              incoming().diff(existing()).affectedKeys().hasOnly([
+                'verificationStatus', 'rejectionReason', 'suspensionReason', 'infoRequestNote',
+                'verifiedBy', 'verifiedAt', 'flatId', 'flatNumber', 'tower', 'residentType', 'updatedAt'
+              ])
+            ) ||
+            (
+              isOwner(uid) &&
+              existing().verificationStatus == 'rejected' &&
+              incoming().verificationStatus == 'pending' &&
+              incoming().diff(existing()).affectedKeys().hasOnly([
+                'flatId', 'flatNumber', 'tower', 'residentName', 'residentType',
+                'email', 'alternateContact', 'addressConfirmed', 'invitationCode',
+                'invitationCodeId', 'verificationStatus', 'rejectionReason', 'infoRequestNote', 'updatedAt'
+              ])
+            )
+          );
+
+        allow delete: if false;
+      }
+
+      // Flats (Single Primary Resident Lock Enforced)
+      match /flats/{flatId} {
+        allow get: if isValidId(flatId) && isValidId(societyId) && (isAdminOrAnyPerm('society.view', 'societies:read') || isVerifiedMemberOf(societyId));
+        allow list: if isAdminOrAnyPerm('society.view', 'societies:read') || isVerifiedMemberOf(societyId);
+
+        allow create: if isValidId(flatId) &&
+          isValidId(societyId) &&
+          isValidFlat(incoming()) &&
+          incoming().flatId == flatId &&
+          incoming().societyId == societyId &&
+          incoming().createdAt == request.time &&
+          (
+            isAdminOrAnyPerm('flat.manage', 'societies:write') ||
+            (
+              isVerifiedAuth() &&
+              incoming().status == 'Verification Pending' &&
+              incoming().occupied == false &&
+              incoming().primaryResidentUid == request.auth.uid &&
+              existsAfter(/databases/$(database)/documents/societies/$(societyId)/members/$(request.auth.uid))
+            )
+          );
+
+        allow update: if isValidId(flatId) &&
+          isValidId(societyId) &&
+          isValidFlat(incoming()) &&
+          incoming().flatId == existing().flatId &&
+          incoming().societyId == existing().societyId &&
+          incoming().createdAt == existing().createdAt &&
+          (
+            isAdminOrAnyPerm('flat.manage', 'societies:write') ||
+            (
+              isVerifiedAuth() &&
+              (existing().status == 'Available' || existing().primaryResidentUid == request.auth.uid) &&
+              incoming().status == 'Verification Pending' &&
+              incoming().occupied == false &&
+              incoming().primaryResidentUid == request.auth.uid &&
+              existsAfter(/databases/$(database)/documents/societies/$(societyId)/members/$(request.auth.uid))
+            )
+          );
+
+        allow delete: if false;
+      }
+
+      // Append-Only Verification History
+      match /verificationHistory/{historyId} {
+        allow get, list: if isValidId(societyId) && (
+          isAdminOrAnyPerm('customer.view', 'customers:read') ||
+          (isVerifiedAuth() && resource.data.uid == request.auth.uid)
+        );
+        allow create: if isValidId(historyId) &&
+          isValidId(societyId) &&
+          isVerifiedAuth() &&
+          isValidVerificationHistory(incoming()) &&
+          incoming().historyId == historyId &&
+          incoming().societyId == societyId &&
+          incoming().createdAt == request.time &&
+          (
+            isAdminOrThreePerms('customer.verify', 'customer.reject', 'customer.suspend') ||
+            isAdminOrPerm('customers:write') ||
+            (
+              incoming().actorUid == request.auth.uid &&
+              incoming().uid == request.auth.uid &&
+              incoming().action in ['submitted', 'resubmitted'] &&
+              incoming().newStatus == 'pending'
+            )
+          );
+        allow update, delete: if false;
+      }
+
+      // Bulk Vendor Offer Campaigns (Strict Society Tenant Isolation)
+      match /campaigns/{campaignId} {
+        allow get: if isValidId(campaignId) && isValidId(societyId) && (isAdminOrAnyPerm('campaign.manage', 'campaigns:read') || isVerifiedMemberOf(societyId));
+        allow list: if isAdminOrAnyPerm('campaign.manage', 'campaigns:read') || (isVerifiedAuth() && resource.data.societyId == societyId && isVerifiedMemberOf(societyId));
+
+        allow create: if isValidId(campaignId) &&
+          isValidId(societyId) &&
+          isAdminOrAnyPerm('campaign.manage', 'campaigns:write') &&
+          isValidCampaign(incoming()) &&
+          incoming().campaignId == campaignId &&
+          incoming().societyId == societyId &&
+          incoming().createdAt == request.time;
+
+        allow update: if isValidId(campaignId) &&
+          isValidId(societyId) &&
+          isAdminOrAnyPerm('campaign.manage', 'campaigns:write') &&
+          isValidCampaign(incoming()) &&
+          incoming().campaignId == existing().campaignId &&
+          incoming().societyId == existing().societyId &&
+          incoming().createdAt == existing().createdAt;
+
+        allow delete: if false;
+      }
+
+      // Group Buying Campaigns (Strict Society Tenant Isolation)
+      match /groupCampaigns/{campaignId} {
+        allow get: if isValidId(campaignId) && isValidId(societyId) && (isAdminOrAnyPerm('group.manage', 'campaigns:read') || isVerifiedMemberOf(societyId));
+        allow list: if isAdminOrAnyPerm('group.manage', 'campaigns:read') || (isVerifiedAuth() && resource.data.societyId == societyId && isVerifiedMemberOf(societyId));
+
+        allow create: if isValidId(campaignId) &&
+          isValidId(societyId) &&
+          isAdminOrAnyPerm('group.manage', 'campaigns:write') &&
+          isValidGroupCampaign(incoming()) &&
+          incoming().campaignId == campaignId &&
+          incoming().societyId == societyId &&
+          incoming().createdAt == request.time;
+
+        allow update: if isValidId(campaignId) &&
+          isValidId(societyId) &&
+          isAdminOrAnyPerm('group.manage', 'campaigns:write') &&
+          isValidGroupCampaign(incoming()) &&
+          incoming().campaignId == existing().campaignId &&
+          incoming().societyId == existing().societyId &&
+          incoming().createdAt == existing().createdAt;
+
+        allow delete: if false;
+      }
+
+      // Campaign Participations (Verified Society Members Only - Own Records)
+      match /participations/{participationId} {
+        allow get: if isValidId(participationId) && isValidId(societyId) && (
+          isAdminOrAnyPerm('campaign.manage', 'campaigns:read') ||
+          (isVerifiedMemberOf(societyId) && existing().uid == request.auth.uid)
+        );
+        allow list: if isAdminOrAnyPerm('campaign.manage', 'campaigns:read') || (
+          isVerifiedMemberOf(societyId) &&
+          resource.data.societyId == societyId &&
+          resource.data.uid == request.auth.uid
+        );
+
+        allow create: if isValidId(participationId) &&
+          isValidId(societyId) &&
+          isVerifiedMemberOf(societyId) &&
+          isValidParticipation(incoming()) &&
+          incoming().participationId == participationId &&
+          incoming().societyId == societyId &&
+          incoming().uid == request.auth.uid &&
+          incoming().status == 'joined' &&
+          incoming().createdAt == request.time &&
+          (
+            (
+              incoming().campaignType == 'bulk_offer' &&
+              exists(/databases/$(database)/documents/societies/$(societyId)/campaigns/$(incoming().campaignId)) &&
+              get(/databases/$(database)/documents/societies/$(societyId)/campaigns/$(incoming().campaignId)).data.status in ['active', 'target_met'] &&
+              incoming().unitPricePaise == get(/databases/$(database)/documents/societies/$(societyId)/campaigns/$(incoming().campaignId)).data.offerPricePaise
+            ) ||
+            (
+              incoming().campaignType == 'group_buy' &&
+              exists(/databases/$(database)/documents/societies/$(societyId)/groupCampaigns/$(incoming().campaignId)) &&
+              get(/databases/$(database)/documents/societies/$(societyId)/groupCampaigns/$(incoming().campaignId)).data.status in ['active', 'target_met'] &&
+              incoming().unitPricePaise == get(/databases/$(database)/documents/societies/$(societyId)/groupCampaigns/$(incoming().campaignId)).data.groupPricePaise
+            )
+          );
+
+        allow update: if isValidId(participationId) &&
+          isValidId(societyId) &&
+          isAdminOrAnyPerm('campaign.manage', 'campaigns:write') &&
+          isValidParticipation(incoming()) &&
+          incoming().participationId == existing().participationId &&
+          incoming().societyId == existing().societyId &&
+          incoming().uid == existing().uid &&
+          incoming().createdAt == existing().createdAt;
+
+        allow delete: if false;
+      }
+
+      // Orders (Strict Society + Owner Isolation, Zero Client Payment Spoofing)
+      match /orders/{orderId} {
+        allow get: if isValidId(orderId) && isValidId(societyId) && (
+          isAdminOrAnyPerm('order.manage', 'orders:read') ||
+          (isVerifiedMemberOf(societyId) && existing().uid == request.auth.uid)
+        );
+        allow list: if isAdminOrAnyPerm('order.manage', 'orders:read') || (
+          isVerifiedMemberOf(societyId) &&
+          resource.data.societyId == societyId &&
+          resource.data.uid == request.auth.uid
+        );
+
+        allow create: if isValidId(orderId) &&
+          isValidId(societyId) &&
+          isVerifiedMemberOf(societyId) &&
+          isValidOrder(incoming()) &&
+          incoming().orderId == orderId &&
+          incoming().societyId == societyId &&
+          incoming().uid == request.auth.uid &&
+          incoming().paymentStatus == 'payment_integration_pending' &&
+          incoming().orderStatus == 'placed' &&
+          incoming().createdAt == request.time &&
+          incoming().updatedAt == request.time;
+
+        allow update: if isValidId(orderId) &&
+          isValidId(societyId) &&
+          isValidOrder(incoming()) &&
+          incoming().orderId == existing().orderId &&
+          incoming().societyId == existing().societyId &&
+          incoming().uid == existing().uid &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedAt == request.time &&
+          (
+            isAdminOrAnyPerm('order.manage', 'orders:write') ||
+            (
+              isVerifiedMemberOf(societyId) &&
+              existing().uid == request.auth.uid &&
+              existing().orderStatus == 'placed' &&
+              incoming().orderStatus == 'cancelled' &&
+              incoming().paymentStatus == existing().paymentStatus &&
+              incoming().diff(existing()).affectedKeys().hasOnly(['orderStatus', 'updatedAt'])
+            )
+          );
+
+        allow delete: if false;
+      }
+
+      // Service Bookings (Strict Society + Owner Isolation)
+      match /serviceBookings/{bookingId} {
+        allow get: if isValidId(bookingId) && isValidId(societyId) && (
+          isAdminOrAnyPerm('order.manage', 'orders:read') ||
+          (isVerifiedMemberOf(societyId) && existing().uid == request.auth.uid)
+        );
+        allow list: if isAdminOrAnyPerm('order.manage', 'orders:read') || (
+          isVerifiedMemberOf(societyId) &&
+          resource.data.societyId == societyId &&
+          resource.data.uid == request.auth.uid
+        );
+
+        allow create: if isValidId(bookingId) &&
+          isValidId(societyId) &&
+          isVerifiedMemberOf(societyId) &&
+          isValidServiceBooking(incoming()) &&
+          incoming().bookingId == bookingId &&
+          incoming().societyId == societyId &&
+          incoming().uid == request.auth.uid &&
+          incoming().status == 'requested' &&
+          !('assignedVendorId' in incoming()) &&
+          exists(/databases/$(database)/documents/services/$(incoming().serviceId)) &&
+          incoming().createdAt == request.time &&
+          incoming().updatedAt == request.time;
+
+        allow update: if isValidId(bookingId) &&
+          isValidId(societyId) &&
+          isValidServiceBooking(incoming()) &&
+          incoming().bookingId == existing().bookingId &&
+          incoming().societyId == existing().societyId &&
+          incoming().uid == existing().uid &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedAt == request.time &&
+          (
+            isAdminOrAnyPerm('order.manage', 'orders:write') ||
+            (
+              isVerifiedMemberOf(societyId) &&
+              existing().uid == request.auth.uid &&
+              existing().status == 'requested' &&
+              incoming().status == 'cancelled' &&
+              incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt'])
+            )
+          );
+
+        allow delete: if false;
+      }
+    }
+
+    // =========================================================================
+    // Global Catalogs (Products & Services - Verified Society Members & Admins)
+    // =========================================================================
+
+    match /products/{productId} {
+      allow get: if isValidId(productId) && (isAnyVerifiedSocietyMember() || isAdminOrPerm('products:read'));
+      allow list: if isAnyVerifiedSocietyMember() || isAdminOrPerm('products:read');
+      allow create, update: if isValidId(productId) &&
+        isAdminOrPerm('products:write') &&
+        isValidProduct(incoming()) &&
+        incoming().productId == productId;
+      allow delete: if false;
+    }
+
+    match /services/{serviceId} {
+      allow get: if isValidId(serviceId) && (isAnyVerifiedSocietyMember() || isAdminOrPerm('services:read'));
+      allow list: if isAnyVerifiedSocietyMember() || isAdminOrPerm('services:read');
+      allow create, update: if isValidId(serviceId) &&
+        isAdminOrPerm('services:write') &&
+        isValidServiceItem(incoming()) &&
+        incoming().serviceId == serviceId;
+      allow delete: if false;
+    }
+
+    // =========================================================================
+    // RBAC: Staff & Roles (Strict Super-Admin Only)
+    // =========================================================================
+
+    match /staff/{staffId} {
+      allow get: if isValidId(staffId) && (isOwner(staffId) || isAdminOrPerm('staff:read'));
+      allow list: if isAdminOrPerm('staff:read');
+      allow create, update: if isValidId(staffId) &&
+        isBootstrappedSuperAdmin() &&
+        isValidStaff(incoming()) &&
+        incoming().staffId == staffId;
+      allow delete: if false;
+    }
+
+    match /roles/{roleId} {
+      allow get: if isValidId(roleId) && (isActiveStaff() || isBootstrappedSuperAdmin());
+      allow list: if isActiveStaff() || isBootstrappedSuperAdmin();
+      allow create, update: if isValidId(roleId) &&
+        isBootstrappedSuperAdmin() &&
+        isValidRole(incoming()) &&
+        incoming().roleId == roleId;
+      allow delete: if false;
+    }
+
+    // =========================================================================
+    // Vendors & Work Orders (Strict Vendor Isolation)
+    // =========================================================================
+
+    match /vendors/{vendorId} {
+      allow get: if isValidId(vendorId) && (isAdminOrAnyPerm('vendor.manage', 'vendors:read') || isVendorOwner(vendorId));
+      allow list: if isAdminOrAnyPerm('vendor.manage', 'vendors:read') || (isVerifiedAuth() && resource.data.uid == request.auth.uid);
+      allow create, update: if isValidId(vendorId) && isAdminOrAnyPerm('vendor.manage', 'vendors:write');
+      allow delete: if false;
+    }
+
+    match /workOrders/{workOrderId} {
+      allow get: if isValidId(workOrderId) && (isAdminOrAnyPerm('vendor.manage', 'work_orders:read') || isVendorOwner(existing().vendorId));
+      allow list: if isAdminOrAnyPerm('vendor.manage', 'work_orders:read') || (isVerifiedAuth() && isVendorOwner(resource.data.vendorId));
+      allow create: if isValidId(workOrderId) && isAdminOrAnyPerm('vendor.manage', 'work_orders:write');
+      allow update: if isValidId(workOrderId) && (
+        isAdminOrAnyPerm('vendor.manage', 'work_orders:write') ||
+        (
+          isVendorOwner(existing().vendorId) &&
+          existing().status in ['assigned', 'in_progress'] &&
+          incoming().status in ['in_progress', 'completed'] &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['status'])
+        )
+      );
+      allow delete: if false;
+    }
+
+    // =========================================================================
+    // Financials: Payments, Refunds, Settlements (Server/Admin Only - Vendors Blocked)
+    // =========================================================================
+
+    match /payments/{paymentId} {
+      allow get: if isValidId(paymentId) && (isAdminOrAnyPerm('payment.view', 'payments:read') || (isVerifiedAuth() && existing().uid == request.auth.uid));
+      allow list: if isAdminOrAnyPerm('payment.view', 'payments:read') || (isVerifiedAuth() && resource.data.uid == request.auth.uid);
+      allow write: if false;
+    }
+
+    match /refunds/{refundId} {
+      allow get, list: if isAdminOrAnyPerm('payment.view', 'payments:read');
+      allow write: if false;
+    }
+
+    match /settlements/{settlementId} {
+      allow get, list: if isAdminOrPerm('settlements:read');
+      allow create, update: if isValidId(settlementId) && isAdminOrPerm('settlements:write');
+      allow delete: if false;
+    }
+
+    // =========================================================================
+    // Notifications & Immutable Audit Logs
+    // =========================================================================
+
+    match /notifications/{notificationId} {
+      allow get: if isValidId(notificationId) && (isAdminOrPerm('notifications:read') || (isVerifiedAuth() && existing().uid == request.auth.uid));
+      allow list: if isAdminOrPerm('notifications:read') || (isVerifiedAuth() && resource.data.uid == request.auth.uid);
+      allow create: if isValidId(notificationId) && (
+        isAdminOrAnyPerm('customer.verify', 'notifications:write') ||
+        isAdminOrThreePerms('customer.reject', 'customer.suspend', 'customers:write')
+      );
+      allow update: if isValidId(notificationId) && (
+        isAdminOrPerm('notifications:write') ||
+        (isVerifiedAuth() && existing().uid == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['read']))
+      );
+      allow delete: if false;
+    }
+
+    match /auditLogs/{logId} {
+      allow get, list: if isAdminOrAnyPerm('audit.view', 'audit:read');
+      allow create: if isValidId(logId) &&
+        isVerifiedAuth() &&
+        isValidAuditLog(incoming()) &&
+        incoming().logId == logId &&
+        incoming().actorUid == request.auth.uid &&
+        incoming().createdAt == request.time &&
+        (
+          isAdminOrPerm('audit:write') ||
+          isAdminOrThreePerms('customer.verify', 'customer.reject', 'customer.suspend') ||
+          isAdminOrThreePerms('invitation.create', 'invitation.revoke', 'society.create') ||
+          (
+            incoming().targetId == request.auth.uid &&
+            incoming().action in ['SUBMIT_SOCIETY_VERIFICATION', 'RESUBMIT_SOCIETY_VERIFICATION']
+          )
+        );
+      allow update, delete: if false;
+    }
+  }
+}
